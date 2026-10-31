@@ -1,27 +1,64 @@
 # okerry-calorie-balance-api
 
-Vercel에 배포하는 Next.js App Router API 전용 프로젝트입니다.
+Vercel Node.js에서 동작하는 Next.js + TypeScript API 프로젝트입니다.
 
-## API
+## 음식 저장 흐름
 
-- `GET /api/health` — 서버 상태 확인
-- `GET /api/foods?name=김밥` — 공유 음식명으로 검색
-- `POST /api/foods` — 공유 음식 등록 또는 기존 기록 기여
+1. 미니앱은 개인 기록을 앱인토스 Storage에 먼저 저장합니다.
+2. 백그라운드에서 `GET /api/health`를 호출합니다. DB 테이블과 인증서 설정이 준비되면 `status: "ok"`를 반환합니다.
+3. 미니앱이 `User.createAnonymousKeyAuthCode()`로 일회용 코드를 발급받습니다.
+4. `POST /api/foods`가 mTLS로 코드를 교환하고, 서버가 받은 `success.anonKey`를 `foods.user_id`에 저장합니다. 클라이언트가 보낸 식별값은 받지 않습니다.
+5. 음식명은 정리·소문자 변환 없이 그대로 저장합니다. `apple`, `Apple`, `app le`은 별개입니다. 완전히 같은 이름은 `ON CONFLICT DO NOTHING`으로 건너뛰며 기존 음식과 칼로리를 수정하지 않습니다.
 
 ```json
 {
-  "name": "김밥",
-  "calories": 450,
-  "serving": "1줄"
+  "code": "SDK에서 방금 발급받은 일회용 코드",
+  "foodName": "Apple",
+  "caloriesKcal": 95,
+  "quantity": 2,
+  "clientErrors": []
 }
 ```
 
-칼로리는 해당 기준량에 대한 kcal 정수로 저장합니다. 같은 음식명과 기준량이 들어오면 칼로리 평균과 기여 횟수를 갱신합니다.
+칼로리는 수량을 곱하기 전 1개/1인분 기준값입니다. `quantity`가 2여도 `caloriesKcal`은 95입니다. 식사 날짜·끼니·메모·신체 정보는 업로드하지 않습니다.
 
-## 데이터베이스 설정
+- `GET /api/foods?name=Apple`: 정확히 일치하는 음식 검색. 사용자 식별값은 반환하지 않습니다.
+- `POST /api/foods`: 신규 등록은 201, 기존 이름은 200. 응답에 `created`를 표시합니다.
+- `GET /api/health`: DB 연결/테이블과 mTLS 환경변수 유무를 확인합니다. 설정이 없으면 503입니다. 실제 인증서의 유효성까지 확인한 상태를 뜻하지는 않습니다.
 
-1. Vercel에서 PostgreSQL 호환 데이터베이스(예: Neon)를 연결합니다.
-2. `DATABASE_URL`을 로컬 `.env.local`과 Vercel 환경 변수에 등록합니다.
-3. `database/schema.sql`을 데이터베이스에 실행합니다.
+## Vercel 환경변수와 인증서
 
-API는 데이터베이스가 없거나 연결할 수 없을 때 `503`을 반환합니다. 현재 음식 등록 API에는 사용자 인증/기여자 검증이 없습니다. 공개 운영 전에는 요청 제한과 잘못된 데이터 대응 정책을 추가해야 합니다.
+- `DATABASE_URL`: PostgreSQL 연결 문자열
+- `TOSS_MTLS_CERT`: 이 미니앱의 `_public.crt` PEM 내용
+- `TOSS_MTLS_KEY`: 이 미니앱의 `_private.key` PEM 내용
+- `ALLOW_LOCAL_DEV_ORIGINS`: 로컬 브라우저 테스트 중에만 `true` (기본 `false`)
+
+앱인토스 콘솔에서 해당 미니앱 → 개발 → mTLS 인증서 → 발급받기를 사용합니다. 다운로드한 인증서/개인 키 내용은 채팅·저장소에 올리지 않고 Vercel의 서버 환경변수에 직접 등록하세요. 실제 줄바꿈 또는 `\n`으로 구분된 PEM을 지원합니다. 변수 설정 후 재배포해야 적용됩니다.
+
+`database/schema.sql`은 이미 생성한 `foods`, `api_error_logs`와 동일한 구조입니다. 기존 테이블을 삭제하거나 재생성하지 않아도 됩니다.
+
+허용 Origin은 SDK 3.8.0에 맞춰 아래 두 주소만 기본 허용합니다.
+
+- `https://okerry-calorie-balance.apps.tossmini.com`
+- `https://okerry-calorie-balance.private-apps.tossmini.com`
+
+Vercel Node.js 런타임이 제공하는 `node:https`의 클라이언트 인증서 옵션으로 mTLS를 구성합니다. 실제 Toss 연결 성공은 인증서 설정 후 기기에서 확인해야 합니다. 브라우저 SDK mock 코드는 실제 사용자 인증 코드가 아니며, 서버에서 인증을 우회하지 않습니다.
+
+## 오류 기록
+
+API의 DB/인증 오류는 `api_error_logs`에 기록합니다. 원본 예외 메시지, 요청 본문, 음식명, 인증 코드, 인증서·키는 로그에 넣지 않습니다. DB 로그 저장도 실패하면 안전한 오류 코드·요청 ID만 Vercel 런타임 로그에 기록합니다.
+
+미니앱의 네트워크/상태 확인/SDK 오류는 기기 Storage에 최대 20개 임시 보관하고, 다음 음식 등록이 성공할 때 인증된 사용자 기준으로 오류 테이블에 전송합니다. API에 연결할 수 없는 동안에는 DB에 즉시 기록할 수 없습니다. 익명 사용자 식별 전 오류의 `user_id`는 null일 수 있습니다.
+
+## 검증
+
+`npm test`: 가짜 파트너 응답으로 성공/FAIL/HTTP 오류, 사용자 위조 거부, 정확한 이름 등록, 중복 등록, 오류 기록, CORS와 health 상태를 검증합니다. 실제 DB/인증서를 사용하지 않습니다.
+
+`npm run build`: Next.js 프로덕션 빌드와 TypeScript 검사.
+
+공식 근거:
+- https://developers-apps-in-toss.toss.im/api/user-key
+- https://developers-apps-in-toss.toss.im/documentation/sdk/domains-api/user/user.createanonymouskeyauthcode
+- https://developers-apps-in-toss.toss.im/documentation/integration/server-api
+- https://vercel.com/docs/functions/runtimes/node-js
+- https://nodejs.org/api/https.html
