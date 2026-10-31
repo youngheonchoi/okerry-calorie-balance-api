@@ -62,3 +62,22 @@ API의 DB/인증 오류는 `api_error_logs`에 기록합니다. 원본 예외 �
 - https://developers-apps-in-toss.toss.im/documentation/integration/server-api
 - https://vercel.com/docs/functions/runtimes/node-js
 - https://nodejs.org/api/https.html
+
+## 칼로리 자동계산과 보상 횟수
+
+`POST /api/calories`: 매 요청 `code`를 서버에서 교환합니다. action은 `status`, `reward_prepare`, `reward_complete`, `reward_cancel`, `calculate`입니다. complete/cancel은 `eventId`, calculate는 `calculationId`(UUID), `foodName`, 선택적인 `localResult: {foodName, caloriesKcal}`를 받습니다. userId는 받지 않습니다.
+
+- 보상 1회 = 5회, 기간 제한 없음. 잔여 0일 때만 보상 세션 생성 가능.
+- AI가 `recognized: false`를 반환하면 0 kcal를 정상 결과로 반환하고 1회 차감합니다. 통신 오류·잘못된 응답·refusal은 차감하지 않습니다.
+- 결과를 성공적으로 저장한 계산만 1회 차감. 같은 calculationId 재전송은 기존 결과를 반환합니다.
+- 동일 음식명의 Storage 후보 → 전체 회원 DB의 완전 일치 첫 행(id ASC) → AI 순입니다. 대소문자/공백을 변환하지 않습니다. 클라이언트 Storage 후보는 서버가 진위를 확인할 수 없는 사용자 입력입니다.
+- 사용자 지갑 행 잠금과 예약 횟수로 병렬 요청의 초과 사용을 막습니다. 중단된 예약은 5분 뒤 다음 요청에서 해제합니다.
+- `database/calorie-credits.sql`은 이미 생성한 테이블의 참고 정의입니다. 기존 테이블을 삭제하지 않습니다.
+- `OPENAI_API_KEY`, `OPENAI_CALORIE_MODEL`(기본 gpt-6-luna), `TOSS_REWARDED_AD_GROUP_ID` 설정 후 재배포합니다. 광고 ID가 비어 있으면 조회/계산은 가능하지만 새 충전은 차단됩니다. 실제 비용과 정상 인증은 운영 설정 후 기기에서 검증해야 합니다.
+- 테스트 광고는 **격리된 테스트 배포에서만** `TOSS_REWARDED_AD_GROUP_ID=ait-ad-test-rewarded-id`를 사용합니다. 운영 DB에 테스트 보상을 지급하지 마세요.
+
+광고 SDK의 `userEarnedReward` 콜백에서만 complete를 호출하고, dismissed/취소는 보상을 주지 않습니다. 현재 연동 문서에 서명된 보상 영수증 검증 API가 없어, 서버는 실제 시청 자체를 독립적으로 증명하지 못합니다. 인증·세션 소유권·중복 지급·잔여 횟수 검사는 있지만 인증된 클라이언트가 complete를 조작하는 공격까지 막는 SSV는 아닙니다. 유료 공개 전에 광고 사업자의 서버 검증 지원 여부와 AI 프로젝트 지출 한도를 확인해야 합니다.
+
+AI 호출은 `/v1/responses`의 구조화된 JSON 출력으로 제한합니다. 음식명만 전송하고 사용자 식별값은 보내지 않으며 `store: false`를 사용합니다. AI 결과는 추정치로 표시합니다. 실패는 원본 예외·키·음식명을 제외한 코드로 로그에 남깁니다. 오프라인 클라이언트 오류는 Storage 최대 20개 후 다음 인증 요청 시 업로드합니다.
+
+공식 참고: https://developers.openai.com/api/docs/models/gpt-6-luna , https://developers.openai.com/api/docs/guides/structured-outputs , https://developers-apps-in-toss.toss.im/documentation/common/monetization/iaa/interstitial-rewarded-ad

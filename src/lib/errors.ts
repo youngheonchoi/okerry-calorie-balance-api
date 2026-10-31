@@ -4,6 +4,10 @@ export type Query = (
 ) => Promise<{ rows: Record<string, unknown>[] }>;
 
 const messages: Record<string, string> = {
+  AI_NOT_CONFIGURED: "AI 계산 설정이 준비되지 않았어요.",
+  AI_UNAVAILABLE: "AI 계산 요청을 완료하지 못했어요.",
+  AI_INVALID_RESULT: "AI 계산 결과를 확인하지 못했어요.",
+  CALORIE_REQUEST_FAILED: "앱에서 칼로리 요청을 완료하지 못했어요.",
   AUTH_NOT_CONFIGURED: "사용자 확인 설정이 준비되지 않았어요.",
   AUTH_REJECTED: "사용자를 확인하지 못했어요.",
   AUTH_UNAVAILABLE: "사용자 확인 요청을 완료하지 못했어요.",
