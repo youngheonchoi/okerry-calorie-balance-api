@@ -81,3 +81,11 @@ API의 DB/인증 오류는 `api_error_logs`에 기록합니다. 원본 예외 �
 AI 호출은 `/v1/responses`의 구조화된 JSON 출력으로 제한합니다. 음식명만 전송하고 사용자 식별값은 보내지 않으며 `store: false`를 사용합니다. AI 결과는 추정치로 표시합니다. 실패는 원본 예외·키·음식명을 제외한 코드로 로그에 남깁니다. 오프라인 클라이언트 오류는 Storage 최대 20개 후 다음 인증 요청 시 업로드합니다.
 
 공식 참고: https://developers.openai.com/api/docs/models/gpt-6-luna , https://developers.openai.com/api/docs/guides/structured-outputs , https://developers-apps-in-toss.toss.im/documentation/common/monetization/iaa/interstitial-rewarded-ad
+
+## 기록 내보내기 광고 설정
+
+`GET /api/ads`는 `TOSS_EXPORT_REWARDED_AD_GROUP_ID`만 공개 SDK 설정으로 반환합니다. ID 미설정 시 `exportRewardedAdGroupId: null`을 반환합니다. 기존 CORS 허용 Origin을 적용하고 캐시하지 않습니다. DB·사용자 인증·자동계산 횟수 지급과는 독립적입니다. API 키·인증서·DB 연결 정보는 응답에 포함하지 않습니다.
+
+Vercel의 API 프로젝트에 내보내기용 보상형 광고 ID를 `TOSS_EXPORT_REWARDED_AD_GROUP_ID`로 설정한 뒤 재배포합니다. 보상 이름은 ‘기록 내보내기’, 수량은 1로 설정합니다. 기존 자동계산 보상 그룹(5회)과 구분합니다. 광고 ID가 없거나 설정 조회가 실패하면 미니앱은 기록 내보내기를 허용하지 않습니다.
+
+미니앱은 `userEarnedReward`를 받은 후 광고가 닫히면 CSV를 저장하거나 프롬프트를 표시합니다. 출력은 기기 기록으로 생성하며 DB 테이블을 추가하거나 광고 보상을 서버에 기록하지 않습니다. 보상은 해당 화면의 선택 조건에만 적용되고, 조건 변경·화면 이탈 시 해제됩니다. 프롬프트가 표시된 후에는 다시 광고를 보지 않고 복사할 수 있습니다.
